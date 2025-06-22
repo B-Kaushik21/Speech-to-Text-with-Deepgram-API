@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>SPEECH TO TEXT WITH DEEPGRAM</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <h2>SPEECH TO TEXT WITH DEEPGRAM</h2>
+
+  <button id="startBtn">Start Listening</button>
+  <button id="clearBtn">Clear Chat</button>
+
+  <textarea id="output" placeholder="speak now..."></textarea>
+
+  <script>
+    let socket;
+    let mediaRecorder;
+    let isRecording = false;
+
+    const startBtn = document.getElementById('startBtn');
+    const clearBtn = document.getElementById('clearBtn');
+    const output = document.getElementById('output');
+
+    startBtn.onclick = async () => {
+      if (!isRecording) {
+        startBtn.textContent = "Stop Listening";
+        isRecording = true;
+
+        const res = await fetch('http://localhost:3000/get-deepgram-key');
+        const { key } = await res.json();
+
+        socket = new WebSocket(`wss://api.deepgram.com/v1/listen?punctuate=true`, [
+          "token",
+          key
+        ]);
+
+        socket.onopen = async () => {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+
+          mediaRecorder.ondataavailable = event => {
+            if (socket.readyState === WebSocket.OPEN) {
+              socket.send(event.data);
+            }
+          };
+
+          mediaRecorder.start(250); // send chunks every 250ms
+        };
+
+        socket.onmessage = message => {
+          const data = JSON.parse(message.data);
+          const transcript = data.channel?.alternatives[0]?.transcript;
+
+          // Only append finalized transcripts
+          if (transcript && !data.is_final) return;
+          if (transcript && data.is_final) {
+            output.value += transcript + " ";
+            output.scrollTop = output.scrollHeight; // auto-scroll
+          }
+        };
+
+      } else {
+        startBtn.textContent = "Start Listening";
+        isRecording = false;
+
+        if (mediaRecorder && mediaRecorder.state !== 'inactive') mediaRecorder.stop();
+        if (socket && socket.readyState === WebSocket.OPEN) socket.close();
+      }
+    };
+
+    clearBtn.onclick = () => {
+      output.value = "";
+    };
+  </script>
+</body>
+</html>
